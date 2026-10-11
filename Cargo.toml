@@ -1,7 +1,11 @@
 [package]
-name = "rusty_quack"
+name = "ng_postcode"
 version = "0.1.0"
 edition = "2024"
+description = "DuckDB extension for Nigeria's NIPOST digital postcode (NDAPS)."
+license = "MIT"
+repository = "https://github.com/Adeniyikayodee/ng-postcode-duckdb"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
@@ -15,9 +19,10 @@ strip = true
 # src/wasm_lib.rs forwards to src/lib.rs so that we can change from cdylib
 # (that is needed while compiling natively) to staticlib (needed since the
 # actual linking will be done via emcc
-name = "rusty_quack"
+name = "ng_postcode"
 path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
 duckdb = { version = "~1.10506.0", features = ["loadable-extension", "vscalar"] }
+ng-postcode = "0.5.2"

@@ -1,0 +1,47 @@
+# name: test/sql/ng_postcode.test
+# description: behaviour the shared cases do not cover: NULLs, columns, and grouping
+# group: [ng_postcode]
+
+# Before the extension is loaded, the functions do not exist.
+statement error
+SELECT ng_postcode_parse('EK01A03FK01');
+----
+Catalog Error: Scalar Function with name ng_postcode_parse does not exist!
+
+require ng_postcode
+
+# A NULL argument gives NULL, as a constant and inside a column.
+query TTTT
+SELECT ng_postcode_parse(NULL), ng_postcode_format(NULL), ng_postcode_truncate(NULL, 'state'), ng_postcode_within(NULL, 'EK');
+----
+NULL	NULL	NULL	NULL
+
+query TT
+SELECT ng_postcode_parse(s), ng_postcode_format(ng_postcode_truncate(s, 'district'))
+FROM (VALUES (1, 'ek 01 a03 fk 01'), (2, NULL), (3, '100001'), (4, 'LA-11-W06-TC-10')) v(i, s) ORDER BY i;
+----
+EK01A03FK01	EK-01-A03
+NULL	NULL
+NULL	NULL
+LA11W06TC10	LA-11-W06
+
+# An unknown segment gives NULL.
+query T
+SELECT ng_postcode_truncate('EK01A03FK01', 'zone');
+----
+NULL
+
+# Counting by district needs no map.
+query TI
+SELECT ng_postcode_format(ng_postcode_truncate(s, 'district')) AS district, count(*)
+FROM (VALUES ('ek 01 a03 fk 01'), ('EK-01-A03-ZZ-14'), ('la11w06tc10'), ('100001')) v(s)
+GROUP BY 1 ORDER BY 1 NULLS LAST;
+----
+EK-01-A03	2
+LA-11-W06	1
+NULL	1
+
+query T
+SELECT ng_postcode_version();
+----
+0.1.0
