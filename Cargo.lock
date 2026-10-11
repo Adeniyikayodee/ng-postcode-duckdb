@@ -796,6 +796,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ng-postcode"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b44f3a6b09a74a8284eef8ee0f6963ab412e1de8339b62c336319597f8fd372f"
+
+[[package]]
+name = "ng_postcode"
+version = "0.1.0"
+dependencies = [
+ "duckdb",
+ "ng-postcode",
+]
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1067,13 +1081,6 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
-
-[[package]]
-name = "rusty_quack"
-version = "0.1.0"
-dependencies = [
- "duckdb",
-]
 
 [[package]]
 name = "ryu"

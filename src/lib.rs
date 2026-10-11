@@ -1,107 +1,166 @@
-use duckdb::{
-    Connection, Result,
-    core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId},
-    duckdb_entrypoint_c_api,
-    ffi::duckdb_string_t,
-    types::DuckString,
-    vscalar::{ScalarFunctionSignature, VScalar},
-    vtab::{BindInfo, InitInfo, TableFunctionInfo, VTab, arrow::WritableVector},
-};
-use std::{
-    error::Error,
-    ffi::CString,
-    sync::atomic::{AtomicBool, Ordering},
-};
+//! Nigeria's NIPOST digital postcode (NDAPS) for DuckDB, on the `ng-postcode` Rust core.
+//!
+//! The functions have the names and answers of the macros in ng-postcode's `sql/duckdb.sql`.
+//! A value that is not well formed gives NULL, and so does a NULL argument.
 
-struct EchoScalar;
+use std::error::Error;
 
-impl VScalar for EchoScalar {
+use duckdb::core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId};
+use duckdb::ffi::duckdb_string_t;
+use duckdb::types::DuckString;
+use duckdb::vscalar::{ScalarFunctionSignature, VScalar};
+use duckdb::vtab::arrow::WritableVector;
+use duckdb::{Connection, Result, duckdb_entrypoint_c_api};
+use ng_postcode::{Postcode, Prefix, Segment};
+
+/// The text arguments of one row, or `None` if any of them is NULL.
+fn arguments<const N: usize>(input: &DataChunkHandle, row: usize) -> Option<[String; N]> {
+    let mut texts = [const { String::new() }; N];
+    for (column, text) in texts.iter_mut().enumerate() {
+        let vector = input.flat_vector(column);
+        if vector.row_is_null(row as u64) {
+            return None;
+        }
+        let mut value = unsafe { vector.as_slice_with_len::<duckdb_string_t>(input.len()) }[row];
+        *text = DuckString::new(&mut value).as_str().into_owned();
+    }
+    Some(texts)
+}
+
+fn varchars(count: usize) -> Vec<LogicalTypeHandle> {
+    (0..count).map(|_| LogicalTypeId::Varchar.into()).collect()
+}
+
+/// A scalar function from `$arity` text arguments to text, or NULL.
+macro_rules! text_function {
+    ($name:ident, $arity:literal, |$arguments:pat_param| $answer:expr) => {
+        struct $name;
+
+        impl VScalar for $name {
+            type State = ();
+
+            fn invoke(
+                _: &(),
+                input: &mut DataChunkHandle,
+                output: &mut dyn WritableVector,
+            ) -> Result<(), Box<dyn Error>> {
+                let mut out = output.flat_vector();
+                for row in 0..input.len() {
+                    let answer: Option<String> =
+                        arguments::<$arity>(input, row).and_then(|$arguments| $answer);
+                    match answer {
+                        Some(text) => out.insert(row, text.as_str()),
+                        None => out.set_null(row),
+                    }
+                }
+                Ok(())
+            }
+
+            fn signatures() -> Vec<ScalarFunctionSignature> {
+                vec![ScalarFunctionSignature::exact(
+                    varchars($arity),
+                    LogicalTypeId::Varchar.into(),
+                )]
+            }
+        }
+    };
+}
+
+fn segment(name: &str) -> Option<Segment> {
+    Some(match name {
+        "state" => Segment::State,
+        "lga" => Segment::Lga,
+        "district" => Segment::District,
+        "area" => Segment::Area,
+        "unit" => Segment::Unit,
+        _ => return None,
+    })
+}
+
+text_function!(Version, 0, |[]| Some(env!("CARGO_PKG_VERSION").to_owned()));
+
+// The letters and digits of a code in upper case, or NULL if it holds anything else.
+text_function!(Compact, 1, |[text]| {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || c == ' ' || c == '-';
+    text.chars().all(allowed).then(|| {
+        let kept = text.chars().filter(char::is_ascii_alphanumeric);
+        kept.map(|c| c.to_ascii_uppercase()).collect()
+    })
+});
+
+// The compact code, EK01A03FK01.
+text_function!(Parse, 1, |[text]| Some(
+    Postcode::parse(&text).ok()?.as_str().to_owned()
+));
+
+// The compact prefix, such as EK01A03.
+text_function!(PrefixParse, 1, |[text]| Some(
+    Prefix::parse(&text).ok()?.as_str().to_owned()
+));
+
+// The hyphenated form of a code or a prefix.
+text_function!(Format, 1, |[text]| Some(
+    Prefix::parse(&text).ok()?.to_string()
+));
+
+// The compact prefix of a code, cut off after a segment. NULL for an unknown segment.
+text_function!(Truncate, 2, |[code, through]| {
+    let prefix = Postcode::parse(&code).ok()?.truncate(segment(&through)?);
+    Some(prefix.as_str().to_owned())
+});
+
+// The prefix one segment shorter, or NULL for a state.
+text_function!(Parent, 1, |[text]| Some(
+    Prefix::parse(&text).ok()?.parent()?.as_str().to_owned()
+));
+
+/// Whether a code starts with a prefix.
+struct Within;
+
+impl VScalar for Within {
     type State = ();
 
     fn invoke(
-        _state: &Self::State,
+        _: &(),
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let input_vec = input.flat_vector(0);
-        let values = unsafe { input_vec.as_slice_with_len::<duckdb_string_t>(input.len()) };
-        let mut output = output.flat_vector();
-
-        for (i, value) in values.iter().enumerate() {
-            if input_vec.row_is_null(i as u64) {
-                output.set_null(i);
-                continue;
+    ) -> Result<(), Box<dyn Error>> {
+        let mut out = output.flat_vector();
+        for row in 0..input.len() {
+            let answer = arguments::<2>(input, row).and_then(|[code, prefix]| {
+                Some(
+                    Prefix::parse(&prefix)
+                        .ok()?
+                        .contains(&Postcode::parse(&code).ok()?),
+                )
+            });
+            match answer {
+                Some(inside) => unsafe {
+                    out.as_mut_slice_with_len::<bool>(input.len())[row] = inside
+                },
+                None => out.set_null(row),
             }
-
-            let mut value = *value;
-            let s = DuckString::new(&mut value).as_str();
-            output.insert(i, format!("🐤 {s} 🦀 {s}").as_str());
         }
         Ok(())
     }
 
     fn signatures() -> Vec<ScalarFunctionSignature> {
         vec![ScalarFunctionSignature::exact(
-            vec![LogicalTypeId::Varchar.into()],
-            LogicalTypeId::Varchar.into(),
+            varchars(2),
+            LogicalTypeId::Boolean.into(),
         )]
-    }
-}
-
-#[repr(C)]
-struct HelloBindData {
-    name: String,
-}
-
-#[repr(C)]
-struct HelloInitData {
-    done: AtomicBool,
-}
-
-struct HelloVTab;
-
-impl VTab for HelloVTab {
-    type InitData = HelloInitData;
-    type BindData = HelloBindData;
-
-    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
-        bind.add_result_column("column0", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        let name = bind.get_parameter(0).to_string();
-        Ok(HelloBindData { name })
-    }
-
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        Ok(HelloInitData {
-            done: AtomicBool::new(false),
-        })
-    }
-
-    fn func(
-        func: &TableFunctionInfo<Self>,
-        output: &mut DataChunkHandle,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let init_data = func.get_init_data();
-        let bind_data = func.get_bind_data();
-        if init_data.done.swap(true, Ordering::Relaxed) {
-            output.set_len(0);
-        } else {
-            let vector = output.flat_vector(0);
-            let result = CString::new(format!("Rusty Quack {} 🐥", bind_data.name))?;
-            vector.insert(0, result);
-            output.set_len(1);
-        }
-        Ok(())
-    }
-
-    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
     }
 }
 
 #[duckdb_entrypoint_c_api]
 pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>> {
-    con.register_scalar_function::<EchoScalar>("rusty_echo")?;
-    con.register_table_function::<HelloVTab>("rusty_quack")?;
-
+    con.register_scalar_function::<Version>("ng_postcode_version")?;
+    con.register_scalar_function::<Compact>("ng_postcode_compact")?;
+    con.register_scalar_function::<Parse>("ng_postcode_parse")?;
+    con.register_scalar_function::<PrefixParse>("ng_postcode_prefix_parse")?;
+    con.register_scalar_function::<Format>("ng_postcode_format")?;
+    con.register_scalar_function::<Truncate>("ng_postcode_truncate")?;
+    con.register_scalar_function::<Parent>("ng_postcode_parent")?;
+    con.register_scalar_function::<Within>("ng_postcode_within")?;
     Ok(())
 }
