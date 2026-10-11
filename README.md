@@ -1,130 +1,68 @@
-# DuckDB Rust extension template
-This is an **experimental** template for Rust based extensions based on the C Extension API of DuckDB. The goal is to
-turn this eventually into a stable basis for pure-Rust DuckDB extensions that can be submitted to the Community extensions
-repository
+# ng_postcode for DuckDB
 
-Features:
-- No DuckDB build required
-- No C++ or C code required
-- CI/CD chain preconfigured
-- (Coming soon) Works with community extensions
+A DuckDB extension for Nigeria's NIPOST digital postcode (NDAPS), the 11-character building code such as `EK-01-A03-FK-01`. It parses and formats codes, and cuts them down to a state, LGA, district, or area, so that a table or a CSV file can be grouped by place with no map.
 
-## Cloning
+The work is done in Rust by the same core as the [`ng-postcode`](https://github.com/Adeniyikayodee/ng-postcode) libraries, and the functions have the names and answers of that project's [SQL macros](https://github.com/Adeniyikayodee/ng-postcode/tree/main/sql). On a million rows the extension parsed, truncated, and formatted every code in 0.06 seconds on one laptop, against 0.21 seconds for the macros.
 
-Clone the repo with submodules
+## Use
 
-```shell
-git clone --recurse-submodules <repo>
+```sql
+SELECT ng_postcode_parse('ek 01 a03 fk 01');
+-- EK01A03FK01
+
+SELECT ng_postcode_format(ng_postcode_truncate(postcode, 'district')) AS district, count(*)
+FROM read_csv('deliveries.csv')
+GROUP BY 1;
 ```
 
-## Dependencies
-In principle, these extensions can be compiled with the Rust toolchain alone. However, this template relies on some additional
-tooling to make life a little easier and to be able to share CI/CD infrastructure with extension templates for other languages:
+A value that is not a well-formed code gives NULL, so it can be counted and followed up. To keep such values out of a table, add a check to the column:
 
-- Python3
-- Python3-venv
-- [Make](https://www.gnu.org/software/make)
-- Git
-
-Installing these dependencies will vary per platform:
-- For Linux, these come generally pre-installed or are available through the distro-specific package manager.
-- For MacOS, [homebrew](https://formulae.brew.sh/).
-- For Windows, [chocolatey](https://community.chocolatey.org/).
-
-## Building
-After installing the dependencies, building is a two-step process. Firstly run:
-```shell
-make configure
+```sql
+CREATE TABLE customers (
+    id       bigint PRIMARY KEY,
+    postcode text CHECK (ng_postcode_parse(postcode) IS NOT DISTINCT FROM postcode)
+);
 ```
-This will ensure a Python venv is set up with DuckDB and DuckDB's test runner installed. Additionally, depending on configuration,
-DuckDB will be used to determine the correct platform for which you are compiling.
 
-Then, to build the extension run:
-```shell
-make debug
-```
-This delegates the build process to cargo, which will produce a shared library in `target/debug/<shared_lib_name>`. After this step,
-a script is run to transform the shared library into a loadable extension by appending a binary footer. The resulting extension is written
-to the `build/debug` directory.
+Write the check with `IS NOT DISTINCT FROM`. With a plain `=`, a malformed code is compared with NULL, and a check lets a row through unless the answer is false.
 
-To create optimized release binaries, simply run `make release` instead.
+## Functions
 
-### Running the extension
-To run the extension code, start `duckdb` with `-unsigned` flag. This will allow you to load the local extension file.
+| Function | Returns |
+| --- | --- |
+| `ng_postcode_parse(text)` | The compact code, `EK01A03FK01`, or NULL |
+| `ng_postcode_prefix_parse(text)` | The compact prefix, such as `EK01A03`, or NULL |
+| `ng_postcode_format(code or prefix)` | The hyphenated form |
+| `ng_postcode_truncate(code, segment)` | The prefix through `state`, `lga`, `district`, `area`, or `unit` |
+| `ng_postcode_parent(prefix)` | The prefix one segment shorter, or NULL for a state |
+| `ng_postcode_within(code, prefix)` | Whether the code starts with the prefix |
+| `ng_postcode_compact(text)` | The letters and digits in upper case, or NULL if the text holds anything else |
+| `ng_postcode_version()` | The version of the extension |
+
+A well-formed code is not necessarily assigned to a building. Only the NIPOST API can confirm that, through one of the `ng-postcode` libraries.
+
+## Build and test
+
+Clone with submodules, then build and run the tests. You need Rust, Python 3, and Make.
 
 ```sh
-duckdb -unsigned
-```
-
-After loading the extension by the file path, you can use the functions provided by the extension. This template registers
-the `rusty_echo()` scalar function and the `rusty_quack()` table function.
-
-```sql
-LOAD './build/debug/extension/rusty_quack/rusty_quack.duckdb_extension';
-SELECT rusty_echo('Jane');
-```
-
-```
-┌─────────────────────┐
-│ rusty_echo('Jane')  │
-│       varchar       │
-├─────────────────────┤
-│ 🐤 Jane 🦀 Jane     │
-└─────────────────────┘
-```
-
-```sql
-SELECT * FROM rusty_quack('Jane');
-```
-
-```
-┌─────────────────────┐
-│       column0       │
-│       varchar       │
-├─────────────────────┤
-│ Rusty Quack Jane 🐥 │
-└─────────────────────┘
-```
-
-## Testing
-This extension uses the DuckDB Python client for testing. This should be automatically installed in the `make configure` step.
-The tests themselves are written in the SQLLogicTest format, just like most of DuckDB's tests. A sample test can be found in
-`test/sql/<extension_name>.test`. To run the tests using the *debug* build:
-
-```shell
-make test_debug
-```
-
-or for the *release* build:
-```shell
+git clone --recurse-submodules https://github.com/Adeniyikayodee/ng-postcode-duckdb
+cd ng-postcode-duckdb
+make configure
+make release
 make test_release
 ```
 
-### Version switching
-Testing with different DuckDB versions is really simple:
+A build works with one version of DuckDB, named in the `Makefile`, because DuckDB's Rust support still uses an interface that changes between releases. To try a local build, start DuckDB with `-unsigned` and load the file by its full path:
 
-First, run
-```
-make clean_all
-```
-to ensure the previous `make configure` step is deleted.
-
-Then, run
-```
-DUCKDB_TEST_VERSION=v1.3.2 make configure
-```
-to select a different duckdb version to test with
-
-Finally, build and test with
-```
-make debug
-make test_debug
+```sql
+LOAD '/full/path/to/build/release/ng_postcode.duckdb_extension';
 ```
 
-### Known issues
-This is a bit of a footgun, but the extensions produced by this template may (or may not) be broken on windows on python3.11
-with the following error on extension load:
-```shell
-IO Error: Extension '<name>.duckdb_extension' could not be loaded: The specified module could not be found
-```
-This was resolved by using python 3.12
+## Tests
+
+`test/sql/vectors.test` is written by `scripts/vectors_test.py` from `test/vectors.json`, a copy of the cases every `ng-postcode` implementation must pass. `test/sql/ng_postcode.test` covers NULLs, columns, and grouping.
+
+## License
+
+MIT
