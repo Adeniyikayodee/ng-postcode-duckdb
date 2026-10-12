@@ -7,6 +7,9 @@ The work is done in Rust by the same core as the [`ng-postcode`](https://github.
 ## Use
 
 ```sql
+INSTALL ng_postcode FROM community;
+LOAD ng_postcode;
+
 SELECT ng_postcode_parse('ek 01 a03 fk 01');
 -- EK01A03FK01
 
