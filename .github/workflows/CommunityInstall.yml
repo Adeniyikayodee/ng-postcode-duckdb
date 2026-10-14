@@ -1,0 +1,29 @@
+#
+# This workflow installs the published extension from DuckDB's community repository on the latest DuckDB and runs the shared cases
+#
+name: Community Install
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  pull_request:
+    paths:
+      - .github/workflows/CommunityInstall.yml
+      - scripts/**
+      - test/vectors.json
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: Install on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: pip install duckdb
+      - run: python scripts/community_install.py
