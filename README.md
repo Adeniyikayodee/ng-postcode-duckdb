@@ -44,6 +44,10 @@ Write the check with `IS NOT DISTINCT FROM`. With a plain `=`, a malformed code 
 
 A well-formed code is not necessarily assigned to a building. Only the NIPOST API can confirm that, through one of the `ng-postcode` libraries.
 
+## DuckDB versions
+
+The community repository carries the extension for DuckDB 1.5.6. DuckDB's Rust support ties a build to one release, so on any other version `INSTALL` reports that the extension is not found.
+
 ## Build and test
 
 Clone with submodules, then build and run the tests. You need Rust, Python 3, and Make.
