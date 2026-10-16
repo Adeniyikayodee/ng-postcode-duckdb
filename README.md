@@ -6,6 +6,8 @@ The work is done in Rust by the same core as the [`ng-postcode`](https://github.
 
 ## Use
 
+Needs DuckDB 1.5.6; see [DuckDB versions](#duckdb-versions).
+
 ```sql
 INSTALL ng_postcode FROM community;
 LOAD ng_postcode;
