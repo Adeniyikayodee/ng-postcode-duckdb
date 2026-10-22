@@ -1,5 +1,5 @@
 #
-# This workflow installs the published extension from DuckDB's community repository on the latest DuckDB and runs the shared cases
+# This workflow installs the published extension from DuckDB's community repository on each supported DuckDB and runs the shared cases
 #
 name: Community Install
 on:
@@ -14,16 +14,17 @@ on:
 
 jobs:
   install:
-    name: Install on ${{ matrix.os }}
+    name: Install on DuckDB ${{ matrix.duckdb }}, ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+        duckdb: ['1.5.6', latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - run: pip install duckdb
+      - run: pip install duckdb${{ matrix.duckdb != 'latest' && format('=={0}', matrix.duckdb) || '' }}
       - run: python scripts/community_install.py
