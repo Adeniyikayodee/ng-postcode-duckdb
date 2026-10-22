@@ -6,7 +6,7 @@ The work is done in Rust by the same core as the [`ng-postcode`](https://github.
 
 ## Use
 
-Needs DuckDB 1.5.6; see [DuckDB versions](#duckdb-versions).
+Needs DuckDB 1.5.6 or 2.0; see [DuckDB versions](#duckdb-versions).
 
 ```sql
 INSTALL ng_postcode FROM community;
@@ -48,7 +48,7 @@ A well-formed code is not necessarily assigned to a building. Only the NIPOST AP
 
 ## DuckDB versions
 
-The community repository carries the extension for DuckDB 1.5.6. DuckDB's Rust support ties a build to one release, so on any other version `INSTALL` reports that the extension is not found.
+The community repository carries the extension for DuckDB 1.5.6 and 2.0. The extension uses DuckDB's stable C API, so the same build loads on both.
 
 ## Build and test
 
@@ -62,7 +62,7 @@ make release
 make test_release
 ```
 
-A build works with one version of DuckDB, named in the `Makefile`, because DuckDB's Rust support still uses an interface that changes between releases. To try a local build, start DuckDB with `-unsigned` and load the file by its full path:
+To try a local build, start DuckDB with `-unsigned` and load the file by its full path:
 
 ```sql
 LOAD '/full/path/to/build/release/ng_postcode.duckdb_extension';
