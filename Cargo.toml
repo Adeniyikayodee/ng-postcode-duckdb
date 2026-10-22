@@ -1,6 +1,6 @@
 [package]
 name = "ng_postcode"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "DuckDB extension for Nigeria's NIPOST digital postcode (NDAPS)."
 license = "MIT"

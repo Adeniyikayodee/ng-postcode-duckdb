@@ -746,7 +746,7 @@ checksum = "b44f3a6b09a74a8284eef8ee0f6963ab412e1de8339b62c336319597f8fd372f"
 
 [[package]]
 name = "ng_postcode"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "duckdb",
  "ng-postcode",

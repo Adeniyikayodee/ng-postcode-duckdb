@@ -44,4 +44,4 @@ NULL	1
 query T
 SELECT ng_postcode_version();
 ----
-0.1.0
+0.2.0
